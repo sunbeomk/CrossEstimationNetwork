@@ -48,7 +48,7 @@ n_persons_levels = [100, 500, 1000]
 n_items_levels = [30, 60, 90]
 n_persons_new = 100
 n_items_new = 30
-n_reps = 30
+n_reps = 1
 
 # Settings for building CEN.
 net_depth_levels = [1, 3]

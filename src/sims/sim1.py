@@ -284,11 +284,14 @@ class Simulation1:
                     path_models = f"./models/{simulation_indicator_lower_case}/n_persons_{n_persons}/n_items_{n_items}/rep_{rep}/net_depth_{net_depth}/linear_{linear}"
                     utils.make_dir(path_models)
                     # cen.combined.save_weights(os.path.join(path_models, "combined/combined"))
+                    os.makedirs(os.path.join(path_models, "person_net"), exist_ok=True)
+                    os.makedirs(os.path.join(path_models, "item_net"), exist_ok=True)
+                    
                     cen.person_net.save_weights(
-                        os.path.join(path_models, "person_net/person_net")
+                        os.path.join(path_models, "person_net/person_net.weights.h5")
                     )
                     cen.item_net.save_weights(
-                        os.path.join(path_models, "item_net/item_net")
+                        os.path.join(path_models, "item_net/item_net.weights.h5")
                     )
 
                     # Create folder for saving the performance of the

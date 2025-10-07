@@ -45,7 +45,7 @@ from models.cen import CEN
 from utils import utils
 
 
-path_emp_data = "./data/VIQT_scores.csv"
+path_emp_data = "./data/LSAT7.csv"
 res_mat = np.loadtxt(path_emp_data, skiprows=1, dtype="int", delimiter=",")
 
 cen = CEN(
