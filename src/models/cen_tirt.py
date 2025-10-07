@@ -95,10 +95,10 @@ class CEN:
 
         def compute_prob(inputs):
             eta, item_params, indices = inputs
-            b_idx = tf.range(tf.shape(eta)[0], dtype=tf.int32)
+            b_idx = tf.range(tf.shape(eta)[0], dtype=tf.int32) # batch index
             
             lambda_all, psi_sq_all, gamma_all = item_params[:,:self.n_item], item_params[:,self.n_item:2*self.n_item], item_params[:,2*self.n_item:]
-            t_a, t_b, i_i, i_k, c_idx = indices[:,0], indices[:,1], indices[:,2], indices[:,3], indices[:,4]
+            t_a, t_b, i_i, i_k, c_idx = indices[:,0], indices[:,1], indices[:,2], indices[:,3], indices[:,4] # trait index, item index, and comparison index
 
             eta_a, eta_b = tf.gather_nd(eta, tf.stack([b_idx, t_a], 1)), tf.gather_nd(eta, tf.stack([b_idx, t_b], 1))
             lambda_i, lambda_k = tf.gather_nd(lambda_all, tf.stack([b_idx, i_i], 1)), tf.gather_nd(lambda_all, tf.stack([b_idx, i_k], 1))
