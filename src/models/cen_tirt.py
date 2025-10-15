@@ -8,29 +8,45 @@ from tensorflow.keras.models import Model
 import time
 
 class ConstraintLayer(Layer):
-    """Custom Keras layer to fix marker psi_sq=1 and constrain marker lambdas."""
-    def __init__(self, n_item, psi_sq_fixed_indices, lambda_positive_indices, **kwargs):
+    """
+    Custom Keras layer to:
+    1. Apply item-specific sign constraints on lambda based on reverse_id.
+    2. Fix marker psi_sq values to 1.0.
+    """
+    def __init__(self, n_item, psi_sq_fixed_indices, reverse_id, **kwargs):
         super(ConstraintLayer, self).__init__(**kwargs)
-        self.n_item, self.psi_sq_fixed_indices, self.lambda_positive_indices = \
-            n_item, tf.constant(psi_sq_fixed_indices, dtype=tf.int32), tf.constant(lambda_positive_indices, dtype=tf.int32)
+        self.n_item = n_item
+        self.psi_sq_fixed_indices = tf.constant(psi_sq_fixed_indices, dtype=tf.int32)
+        self.reverse_id = tf.constant(reverse_id, dtype=tf.bool)
 
     def call(self, item_params):
-        lambdas = item_params[:, :self.n_item]
+        lambdas_raw = item_params[:, :self.n_item]
         psi_sqs_raw = item_params[:, self.n_item:2*self.n_item]
         gammas = item_params[:, 2*self.n_item:]
+
+        # --- Psi_sq constraint ---
+        # 1. Apply softplus to all to ensure positivity for non-marker items.
         psi_sqs_positive = tf.math.softplus(psi_sqs_raw)
+        # 2. Create a mask and overwrite the marker items with a hard 1.0.
         psi_mask = tf.reduce_any(tf.equal(tf.range(self.n_item, dtype=tf.int32), tf.expand_dims(self.psi_sq_fixed_indices, 1)), axis=0)
         psi_sqs_constrained = tf.where(psi_mask, 1.0, psi_sqs_positive)
-        lambda_mask = tf.reduce_any(tf.equal(tf.range(self.n_item, dtype=tf.int32), tf.expand_dims(self.lambda_positive_indices, 1)), axis=0)
-        lambdas_constrained = tf.where(lambda_mask, tf.math.softplus(lambdas), lambdas)
-        return tf.concat([lambdas_constrained, psi_sqs_constrained, gammas], axis=1)
+
+        # --- Item-specific lambda constraints ---
+        positive_lambdas = tf.math.softplus(lambdas_raw)
+        negative_lambdas = -tf.math.softplus(lambdas_raw)
+        # Where reverse_id is True, use the negative lambda; otherwise, use the positive one.
+        lambdas_constrained = tf.where(self.reverse_id, negative_lambdas, positive_lambdas)
+
+        # Reassemble the final parameter vector
+        constrained_params = tf.concat([lambdas_constrained, psi_sqs_constrained, gammas], axis=1)
+        return constrained_params
 
     def get_config(self):
         config = super(ConstraintLayer, self).get_config()
         config.update({
             "n_item": self.n_item,
             "psi_sq_fixed_indices": self.psi_sq_fixed_indices.numpy().tolist(),
-            "lambda_positive_indices": self.lambda_positive_indices.numpy().tolist(),
+            "reverse_id": self.reverse_id.numpy().tolist(),
         })
         return config
 
@@ -38,17 +54,18 @@ class CEN:
     def __init__(
         self, inp_size_person_net, inp_size_item_net, n_trait, n_item, n_comps,
         person_net_depth, item_net_depth, psi_sq_fixed_indices,
-        lambda_positive_indices, show_model_layout):
+        reverse_id, show_model_layout):
         
         self.inp_size_person_net = inp_size_person_net 
         self.inp_size_item_net = inp_size_item_net
         self.n_trait, self.n_item, self.n_comps = n_trait, n_item, n_comps
         self.person_net_depth, self.item_net_depth = person_net_depth, item_net_depth
         self.psi_sq_fixed_indices = psi_sq_fixed_indices
-        self.lambda_positive_indices = lambda_positive_indices
+        self.reverse_id = reverse_id
         self.show_model_layout = show_model_layout
+        # Initialize all attributes
         self.person_net, self.item_net, self.IRT_net, self.combined = None, None, None, None
-        self.res_mat, self.trait_id, self.item_id, self.reverse_id = None, None, None, None
+        self.res_mat, self.trait_id, self.item_id = None, None, None
         self.X_person_net, self.X_item_net, self.X_indices, self.y_CEN = None, None, None, None
 
     def _build_person_net(self):
@@ -71,7 +88,7 @@ class CEN:
         constrained_params = ConstraintLayer(
             n_item=self.n_item,
             psi_sq_fixed_indices=self.psi_sq_fixed_indices,
-            lambda_positive_indices=self.lambda_positive_indices,
+            reverse_id=self.reverse_id,
             name="constraints")(params_out)
         return Model(inp, constrained_params, name="item_net")
     
@@ -87,6 +104,7 @@ class CEN:
             t_a, t_b, i_i, i_k, c_idx = indices[:,0], indices[:,1], indices[:,2], indices[:,3], indices[:,4]
             eta_a, eta_b = tf.gather_nd(eta, tf.stack([b_idx, t_a], 1)), tf.gather_nd(eta, tf.stack([b_idx, t_b], 1))
             lambda_i, lambda_k = tf.gather_nd(lambda_all, tf.stack([b_idx, i_i], 1)), tf.gather_nd(lambda_all, tf.stack([b_idx, i_k], 1))
+            # Use psi_sq values directly, as ConstraintLayer produced the final values
             psi_sq_i, psi_sq_k = tf.gather_nd(psi_sq_all, tf.stack([b_idx, i_i], 1)), tf.gather_nd(psi_sq_all, tf.stack([b_idx, i_k], 1))
             gamma_l = tf.gather_nd(gamma_all, tf.stack([b_idx, c_idx], 1))
             num = -gamma_l + lambda_i * eta_a - lambda_k * eta_b
@@ -98,7 +116,6 @@ class CEN:
         prob = Lambda(compute_prob, output_shape=(1,))([inp_eta, inp_params, inp_indices])
         return Model([inp_eta, inp_params, inp_indices], prob, name="IRT_net")
 
-    # CRITICAL FIX: Add 'reverse_id' to the method signature
     def load_data(self, res_mat, trait_id, item_id, reverse_id):
         self.n_persons, _ = res_mat.shape
         self.res_mat, self.trait_id, self.item_id, self.reverse_id = res_mat, trait_id, item_id, reverse_id
@@ -144,7 +161,6 @@ class CEN:
             epochs=epochs, batch_size=batch_size, callbacks=[early_stopping] if early_stopping else [],
             verbose=verbose, validation_split=0.1)
 
-    # CRITICAL FIX: Update param_est to handle ipsative scores and softplus
     def param_est(self):
         n_persons, n_comps = self.res_mat.shape
         reverse_id_vec = self.reverse_id.astype(bool).flatten()
@@ -165,7 +181,7 @@ class CEN:
         item_c = np.zeros(self.n_item, dtype=int)
         
         all_l = item_params[:, :self.n_item]
-        all_psi_sq = item_params[:, self.n_item:2*self.n_item] # Already final values from ConstraintLayer
+        all_psi_sq = item_params[:, self.n_item:2*self.n_item] # These are the final constrained values
         all_g = item_params[:, 2*self.n_item:]
         
         for c_idx in range(self.n_comps):
@@ -176,7 +192,7 @@ class CEN:
             psi_sq_s[k] += all_psi_sq[c_idx, k]
         
         lambda_est = np.where(item_c > 0, lambda_s / item_c, 0)
-        psi_sq_est = np.where(item_c > 0, psi_sq_s / item_c, 0)
+        psi_sq_est = np.where(item_c > 0, psi_sq_s / item_c, 0) # Average the final values
         gamma_est = np.diag(all_g)
         
         return {"eta": eta_est, "lambda": lambda_est, "psi_sq": psi_sq_est, "gamma": gamma_est}

@@ -79,13 +79,13 @@ block_id
 # true latent trait
 data_long %>%
   group_by(person) %>%
-  filter(itemC == 1) %>%
+  filter(itemC == 3) %>%
   summarise(eta1 = eta1,
             eta2 = eta2) -> eta12
 data_long %>%
   group_by(person) %>%
-  filter(itemC == 2) %>%
-  summarise(eta3 = eta2) -> eta3
+  filter(itemC == 1) %>%
+  summarise(eta3 = eta1) -> eta3
 left_join(eta12, eta3) %>%
   select(eta1, eta2, eta3) %>%
   as.matrix -> eta_mat
@@ -138,8 +138,9 @@ cor(ipsative_score_mat, eta_mat)
 # pred <- predict(fit_stan)
 
 
-fut_lavaan <- fit_TIRT_lavaan(data_long)
-eta_lavaan <- predict(fut_lavaan)
+fit_lavaan <- fit_TIRT_lavaan(data_long)
+summary(fit_lavaan)
+eta_lavaan <- predict(fit_lavaan)
 dim(eta_lavaan)
 eta_lavaan_mat <- data.frame(
   eta_lavaan[eta_lavaan$trait == "trait1", "estimate"],
@@ -170,6 +171,7 @@ plot(lambda_est, lambda)
 abline(0, 1)
 cor(eta_mat, eta_est)
 
+psi_sq_est
 
 
 # This rotates and flips eta_est to match eta_mat as closely as possible
