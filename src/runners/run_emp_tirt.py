@@ -21,12 +21,15 @@ path_emp_data = "./data/tirt_data.csv"
 path_trait_id = "./data/trait_id.csv"
 path_item_id = "./data/item_id.csv"
 path_block_id = "./data/block_id.csv"
+path_reverse_id = "./data/reverse_id.csv"
 
 # Load and preprocess data
 res_mat = np.loadtxt(path_emp_data, skiprows=1, dtype=int, delimiter=",")
 trait_id = np.loadtxt(path_trait_id, skiprows=1, dtype=int, delimiter=",") - 1
 item_id = np.loadtxt(path_item_id, skiprows=1, dtype=int, delimiter=",") - 1
 item_to_block_map = np.loadtxt(path_block_id, skiprows=1, dtype=int, delimiter=",") - 1
+reverse_id_int = np.loadtxt(path_reverse_id, skiprows=1, dtype=int, delimiter=",")
+reverse_id = reverse_id_int.astype(bool)
 
 # ===============================
 # Determine Indices for Constraints
@@ -53,25 +56,28 @@ print(f"Indices where lambda will be constrained > 0: {lambda_positive_indices}"
 # Initialize CEN object
 # ===============================
 cen = CEN(
-    inp_size_person_net=res_mat.shape[1],
+    inp_size_person_net=res_mat.shape[1] + n_trait,
     inp_size_item_net=res_mat.shape[0],
     n_trait=n_trait,
     n_item=n_item,
     n_comps=res_mat.shape[1],
-    person_net_depth=3,
-    item_net_depth=3,
+    person_net_depth=1,
+    item_net_depth=1,
     psi_sq_fixed_indices=psi_sq_fixed_indices,
     lambda_positive_indices=lambda_positive_indices,
     show_model_layout=True,
 )
 
-cen.load_data(res_mat=res_mat, trait_id=trait_id, item_id=item_id)
+cen.load_data(res_mat=res_mat, 
+              trait_id=trait_id, 
+              item_id=item_id, 
+              reverse_id=reverse_id)
 cen.build_networks()
 
 # ===============================
 # Set optimizer, loss, callbacks
 # ===============================
-optimizer = Adam(learning_rate=0.0001)
+optimizer = Adam(learning_rate=0.001)
 loss_func = BinaryCrossentropy()
 early_stopping = EarlyStopping(
     monitor="val_loss", min_delta=0.001, patience=100,
